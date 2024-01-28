@@ -1,4 +1,4 @@
-# Memory Allocation Library Documentation
+# Memory Allocation Documentation
 
 ## Structures
 
