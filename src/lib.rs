@@ -1,7 +1,7 @@
 #![no_std]
 
 use core::{mem::size_of, ptr};
-use libc::{mmap, sbrk, MAP_ANONYMOUS, MAP_FAILED, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE};
+use libc::{c_void, memcpy, memset, mmap, munmap, sbrk, MAP_ANONYMOUS, MAP_FAILED, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE};
 
 struct Header {
     size: usize,
@@ -122,7 +122,7 @@ fn find_chunk(size: usize) -> Result<*mut Header, *mut ()> {
     }
 }
 
-fn malloc(size: usize) -> *mut () {
+pub fn malloc(size: usize) -> *mut () {
     unsafe {
         if size == 0 {
             return ptr::null_mut();
@@ -165,5 +165,64 @@ fn malloc(size: usize) -> *mut () {
         (*header).is_mmap = 1;
     
         p.add(size_of::<Header>()) as *mut ()
+    }
+}
+
+pub fn realloc(p: *mut (), size: usize) -> *mut () {
+    unsafe {
+        let size_align = get_align(size);
+        if p == ptr::null_mut() {
+            return malloc(size_align)
+        }
+
+        let new_ptr = malloc(size_align);
+        let header = get_header(p);
+
+        let memcpy_size = if (*header).size < size_align {
+            (*header).size
+        } else {
+            size_align
+        };
+
+        memcpy(new_ptr as *mut c_void, p as *const c_void, memcpy_size);
+
+        free(p);
+        new_ptr
+    }
+}
+
+pub fn calloc(number: usize, size: usize) -> *mut () {
+    unsafe {
+        let new_ptr = malloc(size * number);
+        memset(new_ptr as *mut c_void, 0, size * number);
+        new_ptr
+    }
+} 
+
+pub fn free(p: *mut ()) {
+    unsafe {
+        if p == ptr::null_mut() {
+            return;
+        }
+
+        let header = get_header(p);
+        let size = (*header).size;
+        if (*header).is_mmap == 1 {
+            let nummap_ret = munmap(p.sub(size_of::<Header>()) as *mut c_void,  size);
+            debug_assert!(nummap_ret == 0);
+            if nummap_ret == 0  {
+
+            } else {
+                let message = "fail munmanp\n";
+                let buffer = message.as_ptr() as *const c_void;
+                let buffer_len = message.len();
+                libc::write(1, buffer, buffer_len);
+            }
+        } else {
+            let index = size / ALIGN;
+            let first_header = FREE_LISTS[index];
+            FREE_LISTS[index] = header;
+            (*header).next = first_header;
+        }
     }
 }
