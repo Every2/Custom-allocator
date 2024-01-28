@@ -2,7 +2,8 @@
 name = "custom-allocator"
 version = "0.1.0"
 edition = "2021"
-
+license = "GPL-2.0"
+license-file = "license.txt"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
 libc = "0.2"
