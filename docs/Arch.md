@@ -10,12 +10,12 @@
 
 ## Constants
 
-- `ALIGN`: Memory alignment (in bytes).
-- `MAX_BYTE`: Maximum size of the memory block to be managed in the heap.
-- `INIT_LIST_SIZE`: Initial size of the list of memory blocks.
+- `MEMORY_ALIGMENT`: Memory alignment (in bytes).
+- `MAX_HEAP_SIZE`: Maximum size of the memory block to be managed in the heap.
+- `INITIAL_LIST_MEM_SIZE`: Initial size of the list of memory blocks.
 - `ADD_LIST_SIZE`: Size to be added to the list of memory blocks.
-- `NUM_LIST`: Number of lists of memory blocks (calculated based on `MAX_BYTE` and `ALIGN`).
-- `INIT_HEAP_SIZE`: Initial size of the heap.
+- `NUMBER_OF_MEM_BLOCKS`: Number of lists of memory blocks (calculated based on `MAX_HEAP_SIZE` and `MEMORY_ALIGMENT`).
+- `INITIAL_HEAP_SIZE`: Initial size of the heap.
 
 ## Functions
 
@@ -47,10 +47,10 @@
 ## Other Helper Functions
 
 - `get_align(size: usize) -> usize`: Returns the aligned size for the memory block.
-- `get_header(ptr: *mut ()) -> *mut Header`: Returns a pointer to the header of the memory block.
+- `get_block_head(ptr: *mut ()) -> *mut Header`: Returns a pointer to the header of the memory block.
 - `init_malloc() -> Result<(), *mut ()>`: Initializes the memory allocation manager.
 - `add_list(size: usize) -> Result<*mut Header, *mut ()>`: Adds a list of memory blocks of size `size`.
-- `find_chunk(size: usize) -> Result<*mut Header, *mut ()>`: Finds a free memory block of size `size`.
+- `find_free_mem_block(size: usize) -> Result<*mut Header, *mut ()>`: Finds a free memory block of size `size`.
 
 ## Important Notes
 

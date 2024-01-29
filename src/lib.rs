@@ -12,41 +12,41 @@ struct Header {
     next: *mut Header,
 }
 
-const ALIGN: usize = 8;
-const MAX_BYTE: usize = 512;
-const INIT_LIST_SIZE: usize = 512;
+const MEMORY_ALIGMENT: usize = 8;
+const MAX_HEAP_SIZE: usize = 512;
+const INITIAL_LIST_MEM_SIZE: usize = 512;
 const ADD_LIST_SIZE: usize = 512;
-const NUM_LIST: usize = MAX_BYTE / ALIGN + 1;
-const INIT_HEAP_SIZE: usize = NUM_LIST * (INIT_LIST_SIZE + size_of::<Header>());
-static mut IS_INIT_MALLOC: bool = false;
-static mut FREE_LISTS: [*mut Header; NUM_LIST] = [ptr::null_mut(); (NUM_LIST)];
+const NUMBER_OF_MEM_BLOCKS: usize = MAX_HEAP_SIZE / MEMORY_ALIGMENT + 1;
+const INITIAL_HEAP_SIZE: usize = NUMBER_OF_MEM_BLOCKS * (INITIAL_LIST_MEM_SIZE + size_of::<Header>());
+static mut IS_MALLOC_INITIALIZED: bool = false;
+static mut AVALIABLE_BLOCKS: [*mut Header; NUMBER_OF_MEM_BLOCKS] = [ptr::null_mut(); (NUMBER_OF_MEM_BLOCKS)];
 
 fn get_align(size: usize) -> usize {
-    (size + ALIGN - 1) / ALIGN * ALIGN
+    (size + MEMORY_ALIGMENT - 1) / MEMORY_ALIGMENT * MEMORY_ALIGMENT
 }
 
-fn get_header(pointer: *mut ()) -> *mut Header {
+fn get_block_head(pointer: *mut ()) -> *mut Header {
     unsafe { pointer.sub(size_of::<Header>()) as *mut Header }
 }
 
 fn init_malloc() -> Result<(), *mut ()> {
     unsafe {
-        IS_INIT_MALLOC = true;
+        IS_MALLOC_INITIALIZED = true;
 
         let current_ptr = sbrk(0) as *mut ();
-        let ret = sbrk((INIT_HEAP_SIZE as isize).try_into().unwrap()) as *mut ();
+        let ret = sbrk((INITIAL_HEAP_SIZE as isize).try_into().unwrap()) as *mut ();
 
         if ret != current_ptr {
             return Err(ret);
         }
         let mut pointer = ret;
-        for i in 1..NUM_LIST {
-            FREE_LISTS[i] = pointer as *mut Header;
+        for i in 1..NUMBER_OF_MEM_BLOCKS {
+            AVALIABLE_BLOCKS[i] = pointer as *mut Header;
 
-            let num_header = INIT_LIST_SIZE / (i * ALIGN);
+            let num_header = INITIAL_LIST_MEM_SIZE / (i * MEMORY_ALIGMENT);
             for j in 0..num_header {
                 let header = pointer as *mut Header;
-                let size = i * ALIGN;
+                let size = i * MEMORY_ALIGMENT;
                 (*header).size = size;
                 (*header).is_mmap = 0;
                 (*header).next = ptr::null_mut();
@@ -100,16 +100,16 @@ fn add_list(size: usize) -> Result<*mut Header, *mut ()> {
     }
 }
 
-fn find_chunk(size: usize) -> Result<*mut Header, *mut ()> {
+fn find_free_mem_block(size: usize) -> Result<*mut Header, *mut ()> {
     unsafe {
         let index = size / 8;
 
-        if FREE_LISTS[index] == ptr::null_mut() {
+        if AVALIABLE_BLOCKS[index] == ptr::null_mut() {
             let new_list_ret = add_list(size);
 
             match new_list_ret {
                 Ok(new_list) => {
-                    FREE_LISTS[index] = new_list;
+                    AVALIABLE_BLOCKS[index] = new_list;
                 }
                 Err(err) => {
                     return Err(err);
@@ -117,9 +117,9 @@ fn find_chunk(size: usize) -> Result<*mut Header, *mut ()> {
             }
         }
 
-        let header = FREE_LISTS[index];
+        let header = AVALIABLE_BLOCKS[index];
 
-        FREE_LISTS[index] = (*header).next;
+        AVALIABLE_BLOCKS[index] = (*header).next;
 
         Ok(header)
     }
@@ -127,18 +127,18 @@ fn find_chunk(size: usize) -> Result<*mut Header, *mut ()> {
 
 pub fn malloc(size: usize) -> *mut () {
     unsafe {
-        if !IS_INIT_MALLOC {
+        if !IS_MALLOC_INITIALIZED {
             if init_malloc().is_err() {
                 return ptr::null_mut();
             }
         }
 
-        let size_align = (size + ALIGN - 1) / ALIGN * ALIGN;
+        let size_align = (size + MEMORY_ALIGMENT - 1) / MEMORY_ALIGMENT * MEMORY_ALIGMENT;
 
-        if size_align <= MAX_BYTE {
-            let index = size_align / ALIGN - 1;
+        if size_align <= MAX_HEAP_SIZE {
+            let index = size_align / MEMORY_ALIGMENT - 1;
 
-            if FREE_LISTS[index].is_null() {
+            if AVALIABLE_BLOCKS[index].is_null() {
                 let num_header = ADD_LIST_SIZE / size_align;
                 let current_ptr = sbrk(0) as *mut ();
                 let ret = sbrk((num_header * (size_align + size_of::<Header>())) as isize);
@@ -153,13 +153,13 @@ pub fn malloc(size: usize) -> *mut () {
                 for _ in 0..num_header {
                     (*pointer).size = size_align;
                     (*pointer).is_mmap = 0;
-                    (*pointer).next = FREE_LISTS[index];
-                    FREE_LISTS[index] = pointer;
+                    (*pointer).next = AVALIABLE_BLOCKS[index];
+                    AVALIABLE_BLOCKS[index] = pointer;
                     pointer = pointer.offset(1);
                 }
             }
 
-            if let Ok(header) = find_chunk(size_align) {
+            if let Ok(header) = find_free_mem_block(size_align) {
                 return (header).add(size_of::<Header>()) as *mut ();
             } else {
                 ptr::null_mut()
@@ -193,7 +193,7 @@ pub fn realloc(pointer: *mut (), size: usize) -> *mut () {
         }
 
         let new_ptr = malloc(size_align);
-        let header = get_header(pointer);
+        let header = get_block_head(pointer);
 
         let copy_size = if (*header).size < size_align {
             (*header).size
@@ -219,7 +219,7 @@ pub fn calloc(number: usize, size: usize) -> *mut () {
         let current_brk = sbrk(0) as *mut ();
         let new_brk = current_brk.offset(total_size as isize);
 
-        if new_brk > (INIT_HEAP_SIZE as *mut ()).offset(INIT_HEAP_SIZE as isize) {
+        if new_brk > (INITIAL_HEAP_SIZE as *mut ()).offset(INITIAL_HEAP_SIZE as isize) {
             return ptr::null_mut();
         }
 
@@ -239,7 +239,7 @@ pub fn free(pointer: *mut ()) {
             return;
         }
 
-        let header = get_header(pointer);
+        let header = get_block_head(pointer);
         let size = (*header).size;
         if (*header).is_mmap == 1 {
             let nummap_ret = munmap(pointer.sub(size_of::<Header>()) as *mut c_void, size);
@@ -252,9 +252,9 @@ pub fn free(pointer: *mut ()) {
                 libc::write(1, buffer, buffer_len);
             }
         } else {
-            let index = size / ALIGN;
-            let first_header = FREE_LISTS[index];
-            FREE_LISTS[index] = header;
+            let index = size / MEMORY_ALIGMENT;
+            let first_header = AVALIABLE_BLOCKS[index];
+            AVALIABLE_BLOCKS[index] = header;
             (*header).next = first_header;
         }
     }
