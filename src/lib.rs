@@ -8,17 +8,26 @@ use libc::{
 
 struct Header {
     size: usize,
+    /// Indicates if the block was allocated via mmap (1 if yes, 0 if no).
     is_mmap: usize,
     next: *mut Header,
 }
 
+///Memory alignment (in bytes).
 const MEMORY_ALIGMENT: usize = 8;
+/// Maximum size of the memory block to be managed in the heap.
 const MAX_HEAP_SIZE: usize = 512;
+/// Initial size of the list of memory blocks.
 const INITIAL_LIST_MEM_SIZE: usize = 512;
+/// Size to be added to the list of memory blocks.
 const ADD_LIST_SIZE: usize = 512;
+///  Number of lists of memory blocks (calculated based on MAX_HEAP_SIZE and MEMORY_ALIGMENT).
 const NUMBER_OF_MEM_BLOCKS: usize = MAX_HEAP_SIZE / MEMORY_ALIGMENT + 1;
+/// Initial size of the heap
 const INITIAL_HEAP_SIZE: usize = NUMBER_OF_MEM_BLOCKS * (INITIAL_LIST_MEM_SIZE + size_of::<Header>());
+/// Check if memory allocator is already initialized
 static mut IS_MALLOC_INITIALIZED: bool = false;
+/// Check free memory blocks
 static mut AVALIABLE_BLOCKS: [*mut Header; NUMBER_OF_MEM_BLOCKS] = [ptr::null_mut(); (NUMBER_OF_MEM_BLOCKS)];
 
 fn get_align(size: usize) -> usize {

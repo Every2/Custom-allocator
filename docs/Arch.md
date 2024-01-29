@@ -57,7 +57,7 @@
 - The code uses the `libc` library for low-level memory allocation functions such as `sbrk`, `mmap`, `munmap`, `memcpy`, `memset`, and `write`.
 - The `malloc`, `realloc`, `calloc`, and `free` functions provide an interface for memory allocation and deallocation.
 - Memory allocation is done in blocks of pre-defined sizes and maintained in free lists for reuse.
-- For memory blocks larger than `MAX_BYTE`, the `mmap` allocation mechanism is used.
+- For memory blocks larger than `MAX_HEAP_SIZE`, the `mmap` allocation mechanism is used.
 - The implementation is thread-unsafe and does not handle memory fragmentation.
 - Pointer manipulation is done in an unsafe manner using `unsafe` due to the low-level nature of memory allocation operations.
 - This implementation is suitable for environments where standard dynamic memory allocation is not available and there are resource limitations.
