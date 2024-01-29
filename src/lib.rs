@@ -2,8 +2,8 @@
 
 use core::{mem::size_of, ptr};
 use libc::{
-    c_void, memcpy, memset, mmap, munmap, sbrk, MAP_ANONYMOUS, MAP_FAILED, MAP_PRIVATE, PROT_EXEC,
-    PROT_READ, PROT_WRITE,
+    c_void, mmap, munmap, sbrk, MAP_ANONYMOUS, MAP_FAILED, MAP_PRIVATE, PROT_EXEC, PROT_READ,
+    PROT_WRITE,
 };
 
 struct Header {
@@ -25,8 +25,8 @@ fn get_align(size: usize) -> usize {
     (size + ALIGN - 1) / ALIGN * ALIGN
 }
 
-fn get_header(ptr: *mut ()) -> *mut Header {
-    unsafe { ptr.sub(size_of::<Header>()) as *mut Header }
+fn get_header(pointer: *mut ()) -> *mut Header {
+    unsafe { pointer.sub(size_of::<Header>()) as *mut Header }
 }
 
 fn init_malloc() -> Result<(), *mut ()> {
@@ -39,26 +39,26 @@ fn init_malloc() -> Result<(), *mut ()> {
         if ret != current_ptr {
             return Err(ret);
         }
-        let mut p = ret;
+        let mut pointer = ret;
         for i in 1..NUM_LIST {
-            FREE_LISTS[i] = p as *mut Header;
+            FREE_LISTS[i] = pointer as *mut Header;
 
             let num_header = INIT_LIST_SIZE / (i * ALIGN);
             for j in 0..num_header {
-                let header = p as *mut Header;
+                let header = pointer as *mut Header;
                 let size = i * ALIGN;
                 (*header).size = size;
                 (*header).is_mmap = 0;
                 (*header).next = ptr::null_mut();
 
-                let next_ptr = p.add(size + size_of::<Header>());
+                let next_ptr = pointer.add(size + size_of::<Header>());
                 if j != (num_header - 1) {
                     (*header).next = next_ptr as *mut Header;
                 } else {
                     (*header).next = ptr::null_mut();
                 }
 
-                p = next_ptr;
+                pointer = next_ptr;
             }
         }
     }
@@ -79,21 +79,21 @@ fn add_list(size: usize) -> Result<*mut Header, *mut ()> {
             return Err(ret);
         }
 
-        let mut p = ret;
+        let mut pointer = ret;
         for j in 0..num_header {
-            let header = p as *mut Header;
+            let header = pointer as *mut Header;
             (*header).size = size;
             (*header).is_mmap = 0;
             (*header).next = ptr::null_mut();
 
-            let next_ptr = p.add(size + size_of::<Header>());
+            let next_ptr = pointer.add(size + size_of::<Header>());
             if j != (num_header - 1) {
                 (*header).next = next_ptr as *mut Header;
             } else {
                 (*header).next = ptr::null_mut();
             }
 
-            p = next_ptr;
+            pointer = next_ptr;
         }
 
         Ok(ret as *mut Header)
@@ -127,103 +127,122 @@ fn find_chunk(size: usize) -> Result<*mut Header, *mut ()> {
 
 pub fn malloc(size: usize) -> *mut () {
     unsafe {
-        if size == 0 {
-            return ptr::null_mut();
-        }
-
         if !IS_INIT_MALLOC {
             if init_malloc().is_err() {
                 return ptr::null_mut();
             }
         }
 
-        let size_align = get_align(size);
+        let size_align = (size + ALIGN - 1) / ALIGN * ALIGN;
 
         if size_align <= MAX_BYTE {
-            let header_ret = find_chunk(size_align);
-            if header_ret.is_err() {
+            let index = size_align / ALIGN - 1;
+
+            if FREE_LISTS[index].is_null() {
+                let num_header = ADD_LIST_SIZE / size_align;
+                let current_ptr = sbrk(0) as *mut ();
+                let ret = sbrk((num_header * (size_align + size_of::<Header>())) as isize);
+                if ret == MAP_FAILED {
+                    return ptr::null_mut();
+                }
+                if ret != current_ptr as *mut c_void {
+                    return ptr::null_mut();
+                }
+
+                let mut pointer = ret as *mut Header;
+                for _ in 0..num_header {
+                    (*pointer).size = size_align;
+                    (*pointer).is_mmap = 0;
+                    (*pointer).next = FREE_LISTS[index];
+                    FREE_LISTS[index] = pointer;
+                    pointer = pointer.offset(1);
+                }
+            }
+
+            if let Ok(header) = find_chunk(size_align) {
+                return (header).add(size_of::<Header>()) as *mut ();
+            } else {
+                ptr::null_mut()
+            }
+        } else {
+            let mmap_size = size + size_of::<Header>();
+            let pointer = mmap(
+                ptr::null_mut(),
+                mmap_size,
+                PROT_READ | PROT_WRITE | PROT_EXEC,
+                MAP_ANONYMOUS | MAP_PRIVATE,
+                -1,
+                0,
+            );
+            if pointer == MAP_FAILED {
                 return ptr::null_mut();
             }
-            let header = header_ret.unwrap();
-            return (header as *mut ()).add(size_of::<Header>());
+            let header = pointer as *mut Header;
+            (*header).size = mmap_size;
+            (*header).is_mmap = 1;
+            pointer.offset(size_of::<Header>() as isize) as *mut ()
         }
-
-        let mmap_size = size_of::<Header>() + size;
-
-        let p = mmap(
-            ptr::null_mut(),
-            mmap_size,
-            PROT_READ | PROT_WRITE | PROT_EXEC,
-            MAP_ANONYMOUS | MAP_PRIVATE,
-            -1,
-            0,
-        );
-
-        if p == MAP_FAILED {
-            return ptr::null_mut();
-        }
-
-        let header = p as *mut Header;
-        (*header).size = mmap_size;
-        (*header).is_mmap = 1;
-
-        p.add(size_of::<Header>()) as *mut ()
     }
 }
 
-pub fn realloc(p: *mut (), size: usize) -> *mut () {
+pub fn realloc(pointer: *mut (), size: usize) -> *mut () {
     unsafe {
         let size_align = get_align(size);
-        if p == ptr::null_mut() {
+        if pointer == ptr::null_mut() {
             return malloc(size_align);
         }
 
         let new_ptr = malloc(size_align);
-        let header = get_header(p);
+        let header = get_header(pointer);
 
-        let memcpy_size = if (*header).size < size_align {
+        let copy_size = if (*header).size < size_align {
             (*header).size
         } else {
             size_align
         };
 
-        memcpy(new_ptr as *mut c_void, p as *const c_void, memcpy_size);
+        let old_ptr = pointer;
+        let destination_ptr = new_ptr;
 
-        free(p);
+        for i in 0..copy_size {
+            *destination_ptr.offset(i as isize) = *old_ptr.offset(i as isize);
+        }
+
+        free(pointer);
         new_ptr
     }
 }
 
-pub fn calloc(number: isize, size: isize) -> *mut () {
+pub fn calloc(number: usize, size: usize) -> *mut () {
     unsafe {
         let total_size = number * size;
         let current_brk = sbrk(0) as *mut ();
-        let new_brk = current_brk.offset(total_size);
+        let new_brk = current_brk.offset(total_size as isize);
 
         if new_brk > (INIT_HEAP_SIZE as *mut ()).offset(INIT_HEAP_SIZE as isize) {
             return ptr::null_mut();
         }
 
-        sbrk(total_size);
+        sbrk(total_size as isize);
 
-        let ptr = current_brk;
+        let pointer = current_brk;
 
-        memset(ptr as *mut c_void, 0, total_size as usize);
+        ptr::write_bytes(pointer, 0, total_size);
 
-        ptr
+        pointer
     }
 }
 
-pub fn free(p: *mut ()) {
+pub fn free(pointer: *mut ()) {
     unsafe {
-        if p == ptr::null_mut() {
+        if pointer == ptr::null_mut() {
             return;
         }
 
-        let header = get_header(p);
+        let header = get_header(pointer);
         let size = (*header).size;
         if (*header).is_mmap == 1 {
-            let nummap_ret = munmap(p.sub(size_of::<Header>()) as *mut c_void, size);
+            let nummap_ret = munmap(pointer.sub(size_of::<Header>()) as *mut c_void, size);
             debug_assert!(nummap_ret == 0);
             if nummap_ret == 0 {
             } else {

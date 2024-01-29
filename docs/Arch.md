@@ -25,10 +25,10 @@
   - `size`: Size of the memory block to be allocated.
 - **Returns:** Pointer to the allocated memory block.
 
-### `realloc(p: *mut (), size: usize) -> *mut ()`
-- **Description:** Changes the size of the memory block pointed to by `p` to `size`.
+### `realloc(pointer: *mut (), size: usize) -> *mut ()`
+- **Description:** Changes the size of the memory block pointed to by `pointer` to `size`.
 - **Parameters:**
-  - `p`: Pointer to the memory block to be reallocated.
+  - `pointer`: Pointer to the memory block to be reallocated.
   - `size`: New size of the memory block.
 - **Returns:** Pointer to the reallocated memory block.
 
@@ -39,10 +39,10 @@
   - `size`: Size in bytes of each element.
 - **Returns:** Pointer to the allocated memory block initialized with zeros.
 
-### `free(p: *mut ())`
-- **Description:** Frees the memory block pointed to by `p`.
+### `free(pointer: *mut ())`
+- **Description:** Frees the memory block pointed to by `pointer`.
 - **Parameters:**
-  - `p`: Pointer to the memory block to be freed.
+  - `pointer`: Pointer to the memory block to be freed.
 
 ## Other Helper Functions
 
