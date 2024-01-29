@@ -51,10 +51,11 @@
 - `init_malloc() -> Result<(), *mut ()>`: Initializes the memory allocation manager.
 - `add_list(size: usize) -> Result<*mut Header, *mut ()>`: Adds a list of memory blocks of size `size`.
 - `find_free_mem_block(size: usize) -> Result<*mut Header, *mut ()>`: Finds a free memory block of size `size`.
+- `print(message: &str) -> isize`: Print a string.
 
 ## Important Notes
 
-- The code uses the `libc` library for low-level memory allocation functions such as `sbrk`, `mmap`, `munmap`, `memcpy`, `memset`, and `write`.
+- The code uses the `libc` library for low-level memory allocation functions such as `sbrk`, `mmap`, `munmap`, `memcpy`, `memset`.
 - The `malloc`, `realloc`, `calloc`, and `free` functions provide an interface for memory allocation and deallocation.
 - Memory allocation is done in blocks of pre-defined sizes and maintained in free lists for reuse.
 - For memory blocks larger than `MAX_HEAP_SIZE`, the `mmap` allocation mechanism is used.

@@ -1,6 +1,6 @@
 #![no_std]
 
-use core::{mem::size_of, ptr};
+use core::{arch::asm, mem::size_of, ptr};
 use libc::{
     c_void, mmap, munmap, sbrk, MAP_ANONYMOUS, MAP_FAILED, MAP_PRIVATE, PROT_EXEC, PROT_READ,
     PROT_WRITE,
@@ -43,12 +43,12 @@ fn init_malloc() -> Result<(), *mut ()> {
         IS_MALLOC_INITIALIZED = true;
 
         let current_ptr = sbrk(0) as *mut ();
-        let ret = sbrk((INITIAL_HEAP_SIZE as isize).try_into().unwrap()) as *mut ();
+        let allocated_memory_ptr = sbrk((INITIAL_HEAP_SIZE as isize).try_into().unwrap()) as *mut ();
 
-        if ret != current_ptr {
-            return Err(ret);
+        if allocated_memory_ptr != current_ptr {
+            return Err(allocated_memory_ptr);
         }
-        let mut pointer = ret;
+        let mut pointer = allocated_memory_ptr;
         for i in 1..NUMBER_OF_MEM_BLOCKS {
             AVALIABLE_BLOCKS[i] = pointer as *mut Header;
 
@@ -78,17 +78,17 @@ fn add_list(size: usize) -> Result<*mut Header, *mut ()> {
     unsafe {
         let current_ptr = sbrk(0) as *mut ();
         let num_header = ADD_LIST_SIZE / size;
-        let ret = sbrk(
+        let allocated_memory_ptr = sbrk(
             (num_header * (size + size_of::<Header>()))
                 .try_into()
                 .unwrap(),
         ) as *mut ();
 
-        if ret != current_ptr {
-            return Err(ret);
+        if allocated_memory_ptr != current_ptr {
+            return Err(allocated_memory_ptr);
         }
 
-        let mut pointer = ret;
+        let mut pointer = allocated_memory_ptr;
         for j in 0..num_header {
             let header = pointer as *mut Header;
             (*header).size = size;
@@ -105,7 +105,7 @@ fn add_list(size: usize) -> Result<*mut Header, *mut ()> {
             pointer = next_ptr;
         }
 
-        Ok(ret as *mut Header)
+        Ok(allocated_memory_ptr as *mut Header)
     }
 }
 
@@ -242,6 +242,24 @@ pub fn calloc(number: usize, size: usize) -> *mut () {
     }
 }
 
+fn print(message: &str) -> isize {
+    let sys_call_result: i32;
+    let ptr_message = message.as_ptr();
+    let size = message.len();
+    unsafe {
+        asm! {
+            "syscall",
+            inout("rax") 1  => sys_call_result,
+            in("rdi") 1,
+            in("rsi") ptr_message,
+            in("rdx") size,
+            lateout("rcx") _,
+            lateout("r11") _,
+        };
+    }
+    sys_call_result as isize 
+}
+
 pub fn free(pointer: *mut ()) {
     unsafe {
         if pointer == ptr::null_mut() {
@@ -256,9 +274,7 @@ pub fn free(pointer: *mut ()) {
             if nummap_ret == 0 {
             } else {
                 let message = "fail munmanp\n";
-                let buffer = message.as_ptr() as *const c_void;
-                let buffer_len = message.len();
-                libc::write(1, buffer, buffer_len);
+                print(message);
             }
         } else {
             let index = size / MEMORY_ALIGMENT;
