@@ -30,6 +30,54 @@ static mut IS_MALLOC_INITIALIZED: bool = false;
 /// Check free memory blocks
 static mut AVALIABLE_BLOCKS: [*mut Header; NUMBER_OF_MEM_BLOCKS] = [ptr::null_mut(); (NUMBER_OF_MEM_BLOCKS)];
 
+fn brk(address: *mut ()) -> i32{
+    let current_break: *mut ();
+    let new_break: *mut  ();
+    unsafe {
+        asm! (
+            "mov rax, 0xC",
+            "mov rdi, 0",
+            "syscall",
+            "mov {}, rax",
+            "mov rax, 0x0C",
+            "mov rdi, {}",
+            "syscall",
+            "mov {}, rax",
+            out(reg) current_break,
+            in(reg) address,
+            out(reg) new_break,
+        );
+    }
+    if new_break == current_break {
+        -1
+    } else {
+        0
+    }
+}
+
+pub fn r_sbrk(increment: isize) -> *mut () {
+    let mut current_break: *mut ();
+    unsafe {
+        asm! {
+            "mov rax, 0x0C",
+            "mov rdi, 0",
+            "syscall",
+            "mov {}, rax",
+            out(reg) current_break,
+        }
+    }
+
+    let address = match increment >= 0 {
+        true => current_break.wrapping_add(increment as usize),
+        false => current_break.wrapping_sub(-increment as usize),
+    };
+
+    match brk(address) {
+        0  => current_break,
+        _ => ptr::null_mut() 
+    }
+}
+
 fn get_align(size: usize) -> usize {
     (size + MEMORY_ALIGMENT - 1) / MEMORY_ALIGMENT * MEMORY_ALIGMENT
 }
@@ -42,11 +90,11 @@ fn init_malloc() -> Result<(), *mut ()> {
     unsafe {
         IS_MALLOC_INITIALIZED = true;
 
-        let current_ptr = sbrk(0) as *mut ();
-        let allocated_memory_ptr = sbrk((INITIAL_HEAP_SIZE as isize).try_into().unwrap()) as *mut ();
+        let current_ptr = sbrk(0);
+        let allocated_memory_ptr = r_sbrk(INITIAL_HEAP_SIZE as isize);
 
-        if allocated_memory_ptr != current_ptr {
-            return Err(allocated_memory_ptr);
+        if allocated_memory_ptr != current_ptr as *mut (){
+            return Err(allocated_memory_ptr as *mut ()) ;
         }
         let mut pointer = allocated_memory_ptr;
         for i in 1..NUMBER_OF_MEM_BLOCKS {
@@ -149,16 +197,16 @@ pub fn malloc(size: usize) -> *mut () {
 
             if AVALIABLE_BLOCKS[index].is_null() {
                 let num_header = ADD_LIST_SIZE / size_align;
-                let current_ptr = sbrk(0) as *mut ();
-                let ret = sbrk((num_header * (size_align + size_of::<Header>())) as isize);
-                if ret == MAP_FAILED {
+                let current_ptr = r_sbrk(0) as *mut ();
+                let sbrk_result = r_sbrk((num_header * (size_align + size_of::<Header>())) as isize);
+                if sbrk_result == MAP_FAILED as *mut () {
                     return ptr::null_mut();
                 }
-                if ret != current_ptr as *mut c_void {
+                if sbrk_result != current_ptr {
                     return ptr::null_mut();
                 }
 
-                let mut pointer = ret as *mut Header;
+                let mut pointer = sbrk_result as *mut Header;
                 for _ in 0..num_header {
                     (*pointer).size = size_align;
                     (*pointer).is_mmap = 0;
@@ -200,7 +248,6 @@ pub fn realloc(pointer: *mut (), size: usize) -> *mut () {
         if pointer == ptr::null_mut() {
             return malloc(size_align);
         }
-
         let new_ptr = malloc(size_align);
         let header = get_block_head(pointer);
 
@@ -245,7 +292,7 @@ pub fn calloc(number: usize, size: usize) -> *mut () {
 fn print(message: &str) -> isize {
     let sys_call_result: i32;
     let ptr_message = message.as_ptr();
-    let size = message.len();
+    let size: usize = message.len();
     unsafe {
         asm! {
             "syscall",
