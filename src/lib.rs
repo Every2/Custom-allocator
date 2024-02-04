@@ -2,8 +2,7 @@
 
 pub use core::{arch::asm, mem::size_of, ptr};
 use libc::{
-    c_void, mmap, munmap, sbrk, MAP_ANONYMOUS, MAP_FAILED, MAP_PRIVATE, PROT_EXEC, PROT_READ,
-    PROT_WRITE,
+    c_void, mmap, munmap, MAP_ANONYMOUS, MAP_FAILED, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE,
 };
 
 struct Header {
@@ -52,7 +51,7 @@ fn brk(address: *mut ()) -> i32 {
     }
 }
 
-pub fn r_sbrk(increment: isize) -> *mut () {
+fn r_sbrk(increment: isize) -> *mut () {
     unsafe {
         if CURRENT_BREAK.is_null() {
             if brk(ptr::null_mut()) < 0 {
