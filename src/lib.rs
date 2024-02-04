@@ -1,6 +1,6 @@
 #![no_std]
 
-use core::{arch::asm, mem::size_of, ptr};
+pub use core::{arch::asm, mem::size_of, ptr};
 use libc::{
     c_void, mmap, munmap, sbrk, MAP_ANONYMOUS, MAP_FAILED, MAP_PRIVATE, PROT_EXEC, PROT_READ,
     PROT_WRITE,
@@ -24,57 +24,50 @@ const ADD_LIST_SIZE: usize = 512;
 ///  Number of lists of memory blocks (calculated based on MAX_HEAP_SIZE and MEMORY_ALIGMENT).
 const NUMBER_OF_MEM_BLOCKS: usize = MAX_HEAP_SIZE / MEMORY_ALIGMENT + 1;
 /// Initial size of the heap
-const INITIAL_HEAP_SIZE: usize = NUMBER_OF_MEM_BLOCKS * (INITIAL_LIST_MEM_SIZE + size_of::<Header>());
+const INITIAL_HEAP_SIZE: usize =
+    NUMBER_OF_MEM_BLOCKS * (INITIAL_LIST_MEM_SIZE + size_of::<Header>());
 /// Check if memory allocator is already initialized
 static mut IS_MALLOC_INITIALIZED: bool = false;
 /// Check free memory blocks
-static mut AVALIABLE_BLOCKS: [*mut Header; NUMBER_OF_MEM_BLOCKS] = [ptr::null_mut(); (NUMBER_OF_MEM_BLOCKS)];
+static mut AVALIABLE_BLOCKS: [*mut Header; NUMBER_OF_MEM_BLOCKS] =
+    [ptr::null_mut(); (NUMBER_OF_MEM_BLOCKS)];
 
-fn brk(address: *mut ()) -> i32{
-    let current_break: *mut ();
-    let new_break: *mut  ();
+static mut CURRENT_BREAK: *mut () = ptr::null_mut();
+
+fn brk(address: *mut ()) -> i32 {
     unsafe {
         asm! (
-            "mov rax, 0xC",
-            "mov rdi, 0",
-            "syscall",
-            "mov {}, rax",
             "mov rax, 0x0C",
             "mov rdi, {}",
             "syscall",
             "mov {}, rax",
-            out(reg) current_break,
             in(reg) address,
-            out(reg) new_break,
+            out(reg) CURRENT_BREAK,
         );
-    }
-    if new_break == current_break {
-        -1
-    } else {
-        0
+        if CURRENT_BREAK < address {
+            -1
+        } else {
+            0
+        }
     }
 }
 
 pub fn r_sbrk(increment: isize) -> *mut () {
-    let mut current_break: *mut ();
     unsafe {
-        asm! {
-            "mov rax, 0x0C",
-            "mov rdi, 0",
-            "syscall",
-            "mov {}, rax",
-            out(reg) current_break,
+        if CURRENT_BREAK.is_null() {
+            if brk(ptr::null_mut()) < 0 {
+                return usize::MAX as *mut ();
+            }
         }
-    }
-
-    let address = match increment >= 0 {
-        true => current_break.wrapping_add(increment as usize),
-        false => current_break.wrapping_sub(-increment as usize),
-    };
-
-    match brk(address) {
-        0  => current_break,
-        _ => ptr::null_mut() 
+        if increment == 0 {
+            return CURRENT_BREAK;
+        }
+        let old_break = CURRENT_BREAK;
+        let new_break = (old_break as *mut u8).wrapping_offset(increment) as *mut ();
+        match brk(new_break) {
+            0 => old_break,
+            _ => usize::MAX as *mut (),
+        }
     }
 }
 
@@ -90,12 +83,13 @@ fn init_malloc() -> Result<(), *mut ()> {
     unsafe {
         IS_MALLOC_INITIALIZED = true;
 
-        let current_ptr = sbrk(0);
+        let current_ptr = r_sbrk(0);
         let allocated_memory_ptr = r_sbrk(INITIAL_HEAP_SIZE as isize);
 
-        if allocated_memory_ptr != current_ptr as *mut (){
-            return Err(allocated_memory_ptr as *mut ()) ;
+        if allocated_memory_ptr != current_ptr as *mut () {
+            return Err(allocated_memory_ptr as *mut ());
         }
+
         let mut pointer = allocated_memory_ptr;
         for i in 1..NUMBER_OF_MEM_BLOCKS {
             AVALIABLE_BLOCKS[i] = pointer as *mut Header;
@@ -124,7 +118,7 @@ fn init_malloc() -> Result<(), *mut ()> {
 
 fn add_list(size: usize) -> Result<*mut Header, *mut ()> {
     unsafe {
-        let current_ptr = sbrk(0) as *mut ();
+        let current_ptr = r_sbrk(0) as *mut ();
         let num_header = ADD_LIST_SIZE / size;
         let allocated_memory_ptr = sbrk(
             (num_header * (size + size_of::<Header>()))
@@ -189,7 +183,6 @@ pub fn malloc(size: usize) -> *mut () {
                 return ptr::null_mut();
             }
         }
-
         let size_align = (size + MEMORY_ALIGMENT - 1) / MEMORY_ALIGMENT * MEMORY_ALIGMENT;
 
         if size_align <= MAX_HEAP_SIZE {
@@ -198,7 +191,8 @@ pub fn malloc(size: usize) -> *mut () {
             if AVALIABLE_BLOCKS[index].is_null() {
                 let num_header = ADD_LIST_SIZE / size_align;
                 let current_ptr = r_sbrk(0) as *mut ();
-                let sbrk_result = r_sbrk((num_header * (size_align + size_of::<Header>())) as isize);
+                let sbrk_result =
+                    r_sbrk((num_header * (size_align + size_of::<Header>())) as isize);
                 if sbrk_result == MAP_FAILED as *mut () {
                     return ptr::null_mut();
                 }
@@ -272,14 +266,14 @@ pub fn realloc(pointer: *mut (), size: usize) -> *mut () {
 pub fn calloc(number: usize, size: usize) -> *mut () {
     unsafe {
         let total_size = number * size;
-        let current_brk = sbrk(0) as *mut ();
+        let current_brk = r_sbrk(0) as *mut ();
         let new_brk = current_brk.offset(total_size as isize);
 
         if new_brk > (INITIAL_HEAP_SIZE as *mut ()).offset(INITIAL_HEAP_SIZE as isize) {
             return ptr::null_mut();
         }
 
-        sbrk(total_size as isize);
+        r_sbrk(total_size as isize);
 
         let pointer = current_brk;
 
@@ -304,7 +298,7 @@ fn print(message: &str) -> isize {
             lateout("r11") _,
         };
     }
-    sys_call_result as isize 
+    sys_call_result as isize
 }
 
 pub fn free(pointer: *mut ()) {
