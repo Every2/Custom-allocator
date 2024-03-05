@@ -4,4 +4,4 @@
 - `increment: The value to increment the program's break value.`
 - **Returns: If successful, returns the program's break value before the increment. Otherwise, returns usize::MAX *mut ().**
 
-Thanks, love of my life for help me!! ^^
+Thanks, You were so special in this moment, hope you're well...
