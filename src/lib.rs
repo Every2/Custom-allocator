@@ -2,7 +2,7 @@
 
 pub use core::{arch::asm, mem::size_of, ptr};
 use libc::{
-    c_void, mmap, munmap, MAP_ANONYMOUS, MAP_FAILED, MAP_PRIVATE, PROT_EXEC, PROT_READ, PROT_WRITE,
+    c_void, munmap, MAP_FAILED,
 };
 
 struct Header {
@@ -33,7 +33,14 @@ static mut AVALIABLE_BLOCKS: [*mut Header; NUMBER_OF_MEM_BLOCKS] =
 
 static mut CURRENT_BREAK: *mut () = ptr::null_mut();
 
-fn brk(address: *mut ()) -> i32 {
+
+const PROT_READ: i32 = 0x1;
+const PROT_WRITE: i32 = 0x2;
+const PROT_EXEC: i32 = 0x4;
+const MAP_ANONYMOUS: i32 = 0x20;
+const MAP_PRIVATE: i32 = 0x2;
+
+fn r_brk(address: *mut ()) -> i32 {
     unsafe {
         asm! (
             "mov rax, 0x0C",
@@ -54,7 +61,7 @@ fn brk(address: *mut ()) -> i32 {
 fn r_sbrk(increment: isize) -> *mut () {
     unsafe {
         if CURRENT_BREAK.is_null() {
-            if brk(ptr::null_mut()) < 0 {
+            if r_brk(ptr::null_mut()) < 0 {
                 return usize::MAX as *mut ();
             }
         }
@@ -63,12 +70,82 @@ fn r_sbrk(increment: isize) -> *mut () {
         }
         let old_break = CURRENT_BREAK;
         let new_break = (old_break as *mut u8).wrapping_offset(increment) as *mut ();
-        match brk(new_break) {
+        match r_brk(new_break) {
             0 => old_break,
             _ => usize::MAX as *mut (),
         }
     }
 }
+
+unsafe fn syscall_mmap(
+    addr: *mut (),
+    length: usize,
+    prot: i32,
+    flags: i32,
+    fd: i32,
+    offset: isize,
+) -> *mut () {
+    let ret: i32;
+    asm!(
+        "syscall",
+        inout("rax") 9 => ret,
+        in("rdi") addr,
+        in("rsi") length,
+        in("rdx") prot,
+        in("r10") flags,
+        in("r8") fd,
+        in("r9") offset,
+        lateout("rcx") _,
+        lateout("r11") _,
+    );
+    ret as *mut ()
+}
+
+unsafe fn syscall_munmap(addr: *mut (), length: usize) -> i32 {
+    let ret: i32;
+    asm!(
+        "syscall",
+        inout("rax") 11 => ret,
+        in("rdi") addr,
+        in("rsi") length,
+        lateout("rcx") _,
+        lateout("r11") _,
+    );
+    ret as i32
+}
+
+
+fn r_munmap(addr: *mut (), length: usize) -> Result<(), i32> {
+    
+    let result = unsafe { syscall_munmap(addr, length) };
+
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(-1)
+    }
+}
+
+fn r_mmap(
+    addr: *mut (),
+    length: usize,
+    prot: i32,
+    flags: i32,
+    fd: i32,
+    offset: isize,
+) -> Result<*mut (), i32> {
+    // Chamada de sistema mmap
+    let addr = unsafe {
+        syscall_mmap(addr, length, prot, flags, fd, offset)
+    };
+
+    if addr == ptr::null_mut() {
+        Err(-1)
+    } else {
+        Ok(addr)
+    }
+}
+
 
 fn get_align(size: usize) -> usize {
     (size + MEMORY_ALIGMENT - 1) / MEMORY_ALIGMENT * MEMORY_ALIGMENT
@@ -119,7 +196,7 @@ fn add_list(size: usize) -> Result<*mut Header, *mut ()> {
     unsafe {
         let current_ptr = r_sbrk(0) as *mut ();
         let num_header = ADD_LIST_SIZE / size;
-        let allocated_memory_ptr = sbrk(
+        let allocated_memory_ptr = r_sbrk(
             (num_header * (size + size_of::<Header>()))
                 .try_into()
                 .unwrap(),
@@ -216,15 +293,14 @@ pub fn malloc(size: usize) -> *mut () {
             }
         } else {
             let mmap_size = size + size_of::<Header>();
-            let pointer = mmap(
-                ptr::null_mut(),
-                mmap_size,
-                PROT_READ | PROT_WRITE | PROT_EXEC,
-                MAP_ANONYMOUS | MAP_PRIVATE,
-                -1,
-                0,
-            );
-            if pointer == MAP_FAILED {
+            let pointer = match r_mmap(ptr::null_mut(), mmap_size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0) {
+                Ok(pointer) => pointer,
+                Err(_) => {
+                   return ptr::null_mut()
+                }
+            };
+
+            if pointer  == ptr::null_mut() {
                 return ptr::null_mut();
             }
             let header = pointer as *mut Header;
