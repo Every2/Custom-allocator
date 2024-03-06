@@ -1,5 +1,5 @@
 use custom_allocator;
-use libc::sbrk;
+
 
 fn main() {
     let ptr1 = custom_allocator::malloc(10);
