@@ -132,7 +132,6 @@ fn r_mmap(
     fd: i32,
     offset: isize,
 ) -> Result<*mut (), i32> {
-    // Chamada de sistema mmap
     let addr = unsafe {
         syscall_mmap(addr, length, prot, flags, fd, offset)
     };
@@ -383,7 +382,6 @@ pub fn free(pointer: *mut ()) {
         let header = get_block_head(pointer);
         let size = (*header).size;
         if (*header).is_mmap == 1 {
-            // Chamada para r_munmap
             match r_munmap(pointer.sub(size_of::<Header>()) as *mut (), size) {
                 Ok(_) => {
                 }
