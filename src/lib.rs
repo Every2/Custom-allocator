@@ -1,9 +1,6 @@
 #![no_std]
 
 pub use core::{arch::asm, mem::size_of, ptr};
-use libc::{
-    c_void, munmap, MAP_FAILED,
-};
 
 struct Header {
     size: usize,
@@ -39,6 +36,7 @@ const PROT_WRITE: i32 = 0x2;
 const PROT_EXEC: i32 = 0x4;
 const MAP_ANONYMOUS: i32 = 0x20;
 const MAP_PRIVATE: i32 = 0x2;
+const MAP_FAILED: *mut u8 = ptr::null_mut();
 
 fn r_brk(address: *mut ()) -> i32 {
     unsafe {
@@ -385,12 +383,14 @@ pub fn free(pointer: *mut ()) {
         let header = get_block_head(pointer);
         let size = (*header).size;
         if (*header).is_mmap == 1 {
-            let nummap_ret = munmap(pointer.sub(size_of::<Header>()) as *mut c_void, size);
-            debug_assert!(nummap_ret == 0);
-            if nummap_ret == 0 {
-            } else {
-                let message = "fail munmanp\n";
-                print(message);
+            // Chamada para r_munmap
+            match r_munmap(pointer.sub(size_of::<Header>()) as *mut (), size) {
+                Ok(_) => {
+                }
+                Err(_) => {
+                    let message = "fail munmap\n";
+                    print(message);
+                }
             }
         } else {
             let index = size / MEMORY_ALIGMENT;
@@ -400,3 +400,4 @@ pub fn free(pointer: *mut ()) {
         }
     }
 }
+
